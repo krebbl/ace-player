@@ -14,9 +14,12 @@ services:
     container_name: ace-app
     restart: unless-stopped
     depends_on: [acestream]
+    ports:
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
     expose:
-      - "8080"
+      - "${APP_PORT:-8080}"
     environment:
+      - APP_PORT=${APP_PORT:-8080}
       - ACE_ENGINE_URL=http://acestream:6878
       - HLS_IDLE_TIMEOUT=120
       - DB_PATH=/data/catalog.db
@@ -34,5 +37,5 @@ volumes:
 networks:
   internal:
   nginx:
-    external: true
+#    external: true
     name: nginx-proxy
