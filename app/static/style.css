@@ -106,20 +106,27 @@ body {
   background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
   pointer-events: none;
 }
-#unmute {
+#play-btn {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  background: var(--accent);
-  color: #04121d;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-  font-size: 14px;
-  font-weight: 600;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 72px;
+  height: 72px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  font-size: 28px;
+  line-height: 1;
   cursor: pointer;
   z-index: 11;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+#play-btn:hover { background: rgba(0, 0, 0, 0.8); }
+#play-btn[hidden] { display: none; }
 
 #results {
   position: absolute;

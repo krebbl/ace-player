@@ -8,7 +8,7 @@
     player: document.getElementById('player'),
     video: document.getElementById('video'),
     playerStatus: document.getElementById('player-status'),
-    unmute: document.getElementById('unmute'),
+    playBtn: document.getElementById('play-btn'),
   };
 
   let currentHls = null;
@@ -198,12 +198,11 @@
     }, delay);
   }
 
-  // Try unmuted first; fall back to muted autoplay on browser rejection.
+  // Try to play; if the browser blocks autoplay, show a play button overlay
+  // so the user can tap to start (a tap counts as a user gesture).
   function tryPlay() {
     return els.video.play().catch(() => {
-      els.video.muted = true;
-      els.unmute.hidden = false;
-      return els.video.play().catch(() => {});
+      els.playBtn.hidden = false;
     });
   }
 
@@ -221,10 +220,7 @@
     currentId = row.content_id;
     retryCount = 0;
     setPlayerStatus('Resolving stream… (this can take 10–30 seconds)');
-    // Start unmuted — tryPlay() will mute and surface the unmute button only
-    // if the browser blocks audio autoplay.
-    els.video.muted = false;
-    els.unmute.hidden = true;
+    els.playBtn.hidden = true;
 
     // Mark the card as playing in-place.
     document.querySelectorAll('.card.playing').forEach((c) => c.classList.remove('playing'));
@@ -266,6 +262,7 @@
     retryCount = 0;
     clearStallTimer();
     clearReloadTimer();
+    els.playBtn.hidden = true;
   });
   els.video.addEventListener('error', () => reloadStream('error'));
   // Live HLS shouldn't naturally end; if it does, the source bailed.
@@ -289,10 +286,8 @@
     }
   });
 
-  els.unmute.addEventListener('click', () => {
-    els.video.muted = false;
-    els.video.volume = 1;
-    els.unmute.hidden = true;
+  els.playBtn.addEventListener('click', () => {
+    els.playBtn.hidden = true;
     tryPlay();
   });
 
