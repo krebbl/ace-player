@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0d10">
+<title>Ace Player</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="header">
+  <div class="row">
+    <input id="q" type="search" placeholder="Search channels…" autocomplete="off" inputmode="search">
+    <button id="close-overlay" type="button" aria-label="Close search" hidden>✕</button>
+  </div>
+  <div id="status" class="status"></div>
+</header>
+
+<main id="stage">
+  <section id="player">
+    <video id="video" controls autoplay playsinline></video>
+    <div id="player-status" class="status"></div>
+    <button id="unmute" aria-label="Unmute" hidden>🔇 Tap to unmute</button>
+  </section>
+
+  <section id="results" aria-label="Channels">
+    <div id="grid"></div>
+  </section>
+</main>
+
+<script src="/vendor/hls.min.js"></script>
+<script src="/app.js" defer></script>
+</body>
+</html>

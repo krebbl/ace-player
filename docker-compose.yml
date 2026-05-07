@@ -1,0 +1,34 @@
+services:
+  acestream:
+    image: blaiseio/acelink:latest
+    # Engine is published amd64-only; emulated on arm64 hosts via Rosetta/qemu.
+    platform: linux/amd64
+    container_name: ace-engine
+    restart: unless-stopped
+    expose:
+      - "6878"
+    networks: [internal]
+
+  app:
+    build: ./app
+    container_name: ace-app
+    restart: unless-stopped
+    depends_on: [acestream]
+    environment:
+      - ACE_ENGINE_URL=http://acestream:6878
+      - HLS_IDLE_TIMEOUT=120
+      - DB_PATH=/data/catalog.db
+      - HLS_DIR=/tmp/hls
+    volumes:
+      - catalog:/data
+      - hls-tmp:/tmp/hls
+    ports:
+      - "0.0.0.0:8080:8080"   # bind to all interfaces so phones on the LAN can reach it
+    networks: [internal]
+
+volumes:
+  catalog:
+  hls-tmp:
+
+networks:
+  internal:
