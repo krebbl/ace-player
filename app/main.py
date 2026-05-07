@@ -33,6 +33,8 @@ async def lifespan(app: FastAPI):
     yield
     log.info("shutting down")
     await hls.manager.shutdown()
+    if db._db:
+        await db._db.close()
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
