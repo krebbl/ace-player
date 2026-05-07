@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -100,11 +101,24 @@ async def hls_playlist(content_id: str):
     if not ok:
         raise HTTPException(status_code=504, detail="ffmpeg did not produce a playlist in time")
     hls.manager.touch(content_id)
+    hls.manager.mark_playlist_updated(content_id)
     return FileResponse(
         hls.manager.playlist_path(content_id),
         media_type="application/vnd.apple.mpegurl",
         headers=_cors({"Cache-Control": "no-store"}),
     )
+
+
+async def _is_segment_complete(path: str) -> bool:
+    if not os.path.exists(path):
+        return False
+    try:
+        st1 = os.stat(path)
+        await asyncio.sleep(0.1)
+        st2 = os.stat(path)
+        return st1.st_size == st2.st_size and st1.st_size > 0
+    except OSError:
+        return False
 
 
 @app.get("/hls/{content_id}/{segment}")
@@ -113,7 +127,7 @@ async def hls_segment(content_id: str, segment: str):
     if not SEG_RE.match(segment):
         raise HTTPException(status_code=400, detail="invalid segment name")
     path = os.path.join(hls.manager.stream_dir(content_id), segment)
-    if not os.path.exists(path):
+    if not await _is_segment_complete(path):
         raise HTTPException(status_code=404, detail="segment not ready")
     hls.manager.touch(content_id)
     return FileResponse(
