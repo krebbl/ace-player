@@ -14,17 +14,18 @@ services:
     container_name: ace-app
     restart: unless-stopped
     depends_on: [acestream]
+    expose:
+      - "8080"
     environment:
       - ACE_ENGINE_URL=http://acestream:6878
       - HLS_IDLE_TIMEOUT=120
       - DB_PATH=/data/catalog.db
       - HLS_DIR=/tmp/hls
+      - VIRTUAL_HOST=$DOMAIN
     volumes:
       - catalog:/data
       - hls-tmp:/tmp/hls
-    ports:
-      - "0.0.0.0:8080:8080"   # bind to all interfaces so phones on the LAN can reach it
-    networks: [internal]
+    networks: [internal, nginx]
 
 volumes:
   catalog:
@@ -32,3 +33,6 @@ volumes:
 
 networks:
   internal:
+  nginx:
+    external: true
+    name: nginx-proxy
