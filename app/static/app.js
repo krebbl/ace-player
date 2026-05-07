@@ -213,11 +213,11 @@
   }
 
   function play(row) {
-    hideOverlay();
     if (row.content_id === currentId) return;
     stopCurrent();
 
     currentId = row.content_id;
+    hideOverlay();
     retryCount = 0;
     setPlayerStatus('Resolving stream… (this can take 10–30 seconds)');
     els.playBtn.hidden = true;
