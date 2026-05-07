@@ -12,6 +12,7 @@ log = logging.getLogger("hls")
 HLS_DIR = os.environ.get("HLS_DIR", "/tmp/hls")
 HLS_IDLE_TIMEOUT = int(os.environ.get("HLS_IDLE_TIMEOUT", "120"))
 PLAYLIST_NAME = "index.m3u8"
+PLAYLIST_STALE_S = 15  # playlist not updated for this long → ffmpeg is stuck
 
 
 @dataclass
@@ -21,6 +22,7 @@ class Stream:
     command_url: str
     last_access: float = field(default_factory=time.time)
     started_at: float = field(default_factory=time.time)
+    last_playlist_update: float = field(default=0.0)
 
 
 class HLSManager:
@@ -31,7 +33,6 @@ class HLSManager:
 
     async def start(self):
         os.makedirs(HLS_DIR, exist_ok=True)
-        # Wipe any leftover segment dirs from prior boots.
         for entry in os.listdir(HLS_DIR):
             shutil.rmtree(os.path.join(HLS_DIR, entry), ignore_errors=True)
         self._gc_task = asyncio.create_task(self._gc_loop())
@@ -50,13 +51,34 @@ class HLSManager:
     def playlist_path(self, content_id: str) -> str:
         return os.path.join(self.stream_dir(content_id), PLAYLIST_NAME)
 
+    def _is_stuck(self, s: Stream) -> bool:
+        if s.proc.returncode is not None:
+            return True
+        if s.last_playlist_update > 0:
+            return time.time() - s.last_playlist_update > PLAYLIST_STALE_S
+        return False
+
+    async def _kill_process(self, s: Stream):
+        if s.proc.returncode is None:
+            try:
+                s.proc.terminate()
+                try:
+                    await asyncio.wait_for(s.proc.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    s.proc.kill()
+                    await s.proc.wait()
+            except ProcessLookupError:
+                pass
+
     async def ensure(self, content_id: str) -> str:
         async with self._lock:
             existing = self._streams.get(content_id)
-            if existing and existing.proc.returncode is None:
+            if existing and not self._is_stuck(existing):
                 existing.last_access = time.time()
                 return self.playlist_path(content_id)
             if existing:
+                log.info("stream %s is stuck or dead, respawning", content_id)
+                await self._kill_process(existing)
                 self._streams.pop(content_id, None)
 
             info = await acestream.start(content_id)
@@ -71,13 +93,6 @@ class HLSManager:
                 except OSError:
                     pass
 
-            # Re-encode video to H.264 main/4.0 + yuv420p so iPhone Safari
-            # plays everything (the source might be MPEG-2 or HEVC, neither
-            # of which Safari decodes inside an HLS .ts segment). Audio is
-            # always re-muxed to AAC stereo — many IPTV sources ship
-            # AC3/E-AC3/MP2 which browsers can't decode in HLS either.
-            #
-            # CPU cost: ~50-100 % of one core per 1080p stream at veryfast.
             args = [
                 "ffmpeg",
                 "-hide_banner",
@@ -99,7 +114,7 @@ class HLSManager:
                 "-f", "hls",
                 "-hls_time", "4",
                 "-hls_list_size", "6",
-                "-hls_flags", "delete_segments+append_list+omit_endlist+independent_segments",
+                "-hls_flags", "delete_segments+omit_endlist+independent_segments",
                 "-hls_segment_filename", os.path.join(out_dir, "seg_%05d.ts"),
                 self.playlist_path(content_id),
             ]
@@ -120,6 +135,8 @@ class HLSManager:
             if os.path.exists(path) and os.path.getsize(path) > 0:
                 return True
             await asyncio.sleep(0.5)
+        log.warning("wait_for_playlist timed out for %s", content_id)
+        await self.stop(content_id)
         return False
 
     def touch(self, content_id: str):
@@ -127,22 +144,18 @@ class HLSManager:
         if s:
             s.last_access = time.time()
 
+    def mark_playlist_updated(self, content_id: str):
+        s = self._streams.get(content_id)
+        if s:
+            s.last_playlist_update = time.time()
+
     async def stop(self, content_id: str):
         async with self._lock:
             s = self._streams.pop(content_id, None)
         if not s:
             return
         log.info("stopping ffmpeg for %s", content_id)
-        if s.proc.returncode is None:
-            try:
-                s.proc.terminate()
-                try:
-                    await asyncio.wait_for(s.proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    s.proc.kill()
-                    await s.proc.wait()
-            except ProcessLookupError:
-                pass
+        await self._kill_process(s)
         await acestream.stop(s.command_url)
         shutil.rmtree(self.stream_dir(content_id), ignore_errors=True)
 
@@ -155,6 +168,7 @@ class HLSManager:
                     expired = [
                         cid for cid, s in self._streams.items()
                         if now - s.last_access > HLS_IDLE_TIMEOUT
+                        or (s.last_playlist_update > 0 and now - s.last_playlist_update > PLAYLIST_STALE_S * 3)
                     ]
                 for cid in expired:
                     log.info("idle gc: stopping %s", cid)
