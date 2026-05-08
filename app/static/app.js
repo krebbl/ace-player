@@ -341,6 +341,23 @@
 
   window.addEventListener('pagehide', stopCurrent);
 
+  // Auto-fullscreen on iOS landscape rotation
+  const handleOrientation = () => {
+    if (!currentId) return;
+    const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+    if (isLandscape) {
+      if (els.video.webkitEnterFullscreen) {
+        els.video.webkitEnterFullscreen();
+      } else if (els.video.requestFullscreen) {
+        els.video.requestFullscreen().catch(() => {});
+      }
+    } else if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+  window.addEventListener('orientationchange', handleOrientation);
+  window.matchMedia('(orientation: landscape)').addEventListener('change', handleOrientation);
+
   updateResultsVisibility();
   search();
 })();
