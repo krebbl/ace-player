@@ -43,8 +43,9 @@
       }
     }
     const ahead = Math.max(0, end - pos);
-    els.footerStatus.textContent = `${ahead.toFixed(1)}s buffered`;
-    els.footerStatus.closest('.footer-right').classList.remove('err');
+    if (ahead >= 5) setPlayerStatus('good');
+    else if (ahead >= 2) setPlayerStatus('warn');
+    else setPlayerStatus('bad');
   };
 
   const startBufferMonitor = () => {
@@ -69,9 +70,13 @@
     els.searchStatus.classList.toggle('err', !!isErr);
   };
 
-  const setPlayerStatus = (msg, isErr = false) => {
-    els.footerStatus.textContent = msg || '';
-    els.footerStatus.closest('.footer-right').classList.toggle('err', !!isErr);
+  const setPlayerStatus = (state) => {
+    const dot = els.footerStatus;
+    dot.className = 'status-dot';
+    if (state === 'loading') dot.classList.add('spinner');
+    else if (state === 'good') dot.classList.add('green');
+    else if (state === 'warn') dot.classList.add('yellow');
+    else if (state === 'bad') dot.classList.add('red');
   };
 
   const updateFooter = () => {
@@ -157,8 +162,7 @@
     clearStallTimer();
     clearReloadTimer();
     stopBufferMonitor();
-    els.footerStatus.textContent = '';
-    els.footerStatus.closest('.footer-right').classList.remove('err');
+    setPlayerStatus('');
     if (currentHls) { try { currentHls.destroy(); } catch (e) {} currentHls = null; }
     els.video.pause();
     if (currentId) {
@@ -180,7 +184,7 @@
     clearStallTimer();
     stopBufferMonitor();
     if (retryCount >= MAX_RETRIES) {
-      setPlayerStatus(`Stream keeps stopping (${reason}). Tap the channel again to retry.`, true);
+      setPlayerStatus('bad');
       return;
     }
     const delay = RETRY_DELAYS_MS[retryCount];
@@ -189,7 +193,7 @@
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       if (remaining > 0) {
-        setPlayerStatus(`Reconnecting (${reason}, attempt ${retryCount}/${MAX_RETRIES}) in ${remaining}s…`);
+        setPlayerStatus('spinner');
       }
     };
     const deadline = Date.now() + delay;
@@ -200,7 +204,7 @@
       clearInterval(ticker);
       reloadTimer = null;
       if (currentId !== startedFor) return;
-      setPlayerStatus(`Reconnecting (${reason}, attempt ${retryCount}/${MAX_RETRIES})…`);
+      setPlayerStatus('spinner');
       const url = `/hls/${startedFor}/index.m3u8?_=${Date.now()}`;
       if (currentHls) { try { currentHls.destroy(); } catch (e) {} currentHls = null; }
       if (els.video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -243,7 +247,7 @@
     hideOverlay();
     updateFooter();
     retryCount = 0;
-    setPlayerStatus('Resolving stream… (this can take 10–30 seconds)');
+    setPlayerStatus('loading');
     els.playBtn.hidden = true;
 
     document.querySelectorAll('.card.playing').forEach((c) => c.classList.remove('playing'));
@@ -264,17 +268,17 @@
       hls.loadSource(url);
       hls.attachMedia(els.video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => tryPlay());
-      hls.on(Hls.Events.ERROR, (_evt, data) => {
-        if (data.fatal) setPlayerStatus(`Playback error: ${data.type}/${data.details}`, true);
-      });
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) reloadStream('hls.js fatal');
+        });
       currentHls = hls;
     } else {
-      setPlayerStatus('Your browser does not support HLS playback.', true);
+      setPlayerStatus('bad');
       return;
     }
 
     const onPlaying = () => {
-      setPlayerStatus('');
+      setPlayerStatus('good');
       startBufferMonitor();
       els.video.removeEventListener('playing', onPlaying);
     };
