@@ -31,11 +31,56 @@
   let reloadTimer = null;
   let bufferTimer = null;
   let activeCategoryFilter = null;
+  let epgCache = null;
+  let epgFetchTimer = null;
   const RETRY_DELAYS_MS = [0, 2000, 5000, 10000, 20000, 30000, 45000, 60000];
   const MAX_RETRIES = RETRY_DELAYS_MS.length;
   const STALL_MS = 8000;
 
   const cleanName = (name) => (name || '').replace(/\s*search-ace\.stream\s*/gi, '').trim();
+
+  const fmtTime = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  async function fetchEpg() {
+    if (epgFetchTimer) clearTimeout(epgFetchTimer);
+    try {
+      const r = await fetch('/api/epg/now');
+      if (r.ok) {
+        const data = await r.json();
+        epgCache = {};
+        for (const item of data) {
+          epgCache[item.content_id] = item;
+        }
+        applyEpgToCards();
+      }
+    } catch (e) {}
+    epgFetchTimer = setTimeout(fetchEpg, 5 * 60 * 1000);
+  }
+
+  function applyEpgToCards() {
+    if (!epgCache) return;
+    document.querySelectorAll('.card').forEach((card) => {
+      const id = card.dataset.id;
+      const epg = epgCache[id];
+      let el = card.querySelector('.epg-info');
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'epg-info';
+        card.appendChild(el);
+      }
+      if (epg && epg.title) {
+        const next = epg.next_title ? ` · Next: ${epg.next_title}` : '';
+        el.textContent = `${epg.title} (${fmtTime(epg.start)}–${fmtTime(epg.stop)})${next}`;
+        el.hidden = false;
+      } else {
+        el.hidden = true;
+      }
+    });
+  }
 
   const updateBuffer = () => {
     if (!currentId) return;
@@ -442,6 +487,7 @@
       const r = await fetch('/api/streams');
       const data = await r.json();
       render(data.results || []);
+      fetchEpg();
       setSearchStatus(
         data.results.length
           ? `${data.results.length} channels loaded`

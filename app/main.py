@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +13,7 @@ import acestream
 import db
 import hls
 from scraper import search_live, import_categories
+from epg import fetch_and_store
 
 PREDEFINED_CATEGORIES = [
     "informational", "entertaining", "educational", "movies",
@@ -36,12 +38,23 @@ def _check_id(content_id: str):
 async def lifespan(app: FastAPI):
     await db.init()
     await hls.manager.start()
+    last_fetch = await db.epg_get_last_fetch()
+    if time.time() - last_fetch > 6 * 3600:
+        asyncio.create_task(_background_epg_fetch())
     log.info("startup complete")
     yield
     log.info("shutting down")
     await hls.manager.shutdown()
     if db._db:
         await db._db.close()
+
+
+async def _background_epg_fetch():
+    try:
+        result = await fetch_and_store()
+        log.info("EPG fetch complete: %s", result)
+    except Exception:
+        log.exception("EPG fetch failed")
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -55,6 +68,7 @@ async def api_health():
         "channels": await db.channel_count(),
         "recent_searches": await db.recent_searches(),
         "active_streams": hls.manager.active(),
+        "epg_last_fetch": await db.epg_get_last_fetch(),
     }
 
 
@@ -82,6 +96,25 @@ async def api_import(body: dict):
     if invalid:
         raise HTTPException(status_code=400, detail=f"invalid categories: {invalid}")
     return await import_categories(categories)
+
+
+@app.get("/api/epg/now")
+async def api_epg_now():
+    return await db.epg_now_for_all()
+
+
+@app.get("/api/epg/channel/{content_id}")
+async def api_epg_channel(content_id: str, hours: int = 24):
+    _check_id(content_id)
+    data = await db.epg_for_channel(content_id, hours=hours)
+    if data is None:
+        raise HTTPException(status_code=404, detail="no EPG data for this channel")
+    return data
+
+
+@app.post("/api/epg/refresh")
+async def api_epg_refresh():
+    return await fetch_and_store()
 
 
 @app.get("/api/streams")
