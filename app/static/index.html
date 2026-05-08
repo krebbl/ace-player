@@ -30,7 +30,15 @@
     <div id="footer-channel" class="footer-channel">No channel selected</div>
     <div id="footer-meta" class="footer-meta"></div>
   </div>
-  <div id="footer-status" class="footer-right"></div>
+  <div class="footer-right">
+    <button id="airplay-btn" type="button" aria-label="AirPlay" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/>
+        <polygon points="12 15 17 21 7 21 12 15" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+    <span id="footer-status"></span>
+  </div>
 </footer>
 
 <script src="/vendor/hls.min.js"></script>

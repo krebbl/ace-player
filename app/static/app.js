@@ -8,6 +8,7 @@
     player: document.getElementById('player'),
     video: document.getElementById('video'),
     playBtn: document.getElementById('play-btn'),
+    airplayBtn: document.getElementById('airplay-btn'),
     footerChannel: document.getElementById('footer-channel'),
     footerMeta: document.getElementById('footer-meta'),
     footerStatus: document.getElementById('footer-status'),
@@ -43,7 +44,7 @@
     }
     const ahead = Math.max(0, end - pos);
     els.footerStatus.textContent = `${ahead.toFixed(1)}s buffered`;
-    els.footerStatus.classList.remove('err');
+    els.footerStatus.closest('.footer-right').classList.remove('err');
   };
 
   const startBufferMonitor = () => {
@@ -70,7 +71,7 @@
 
   const setPlayerStatus = (msg, isErr = false) => {
     els.footerStatus.textContent = msg || '';
-    els.footerStatus.classList.toggle('err', !!isErr);
+    els.footerStatus.closest('.footer-right').classList.toggle('err', !!isErr);
   };
 
   const updateFooter = () => {
@@ -157,6 +158,7 @@
     clearReloadTimer();
     stopBufferMonitor();
     els.footerStatus.textContent = '';
+    els.footerStatus.closest('.footer-right').classList.remove('err');
     if (currentHls) { try { currentHls.destroy(); } catch (e) {} currentHls = null; }
     els.video.pause();
     if (currentId) {
@@ -323,6 +325,16 @@
     els.q.blur();
     hideOverlay();
   });
+
+  if (els.video.webkitShowPlaybackTargetPicker) {
+    els.video.addEventListener('webkitplaybacktargetavailabilitychanged', (e) => {
+      els.airplayBtn.hidden = e.availability !== 'available';
+    });
+    els.airplayBtn.addEventListener('click', () => {
+      els.video.webkitShowPlaybackTargetPicker();
+    });
+  }
+
   window.addEventListener('pagehide', stopCurrent);
 
   updateResultsVisibility();
