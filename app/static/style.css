@@ -239,3 +239,106 @@ body {
 @media (max-width: 640px) {
   #grid { grid-template-columns: 1fr; }
 }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-overlay[hidden] { display: none !important; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 520px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.modal h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+.modal-desc {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.category-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: center;
+  transition: background 80ms, border-color 80ms;
+  user-select: none;
+  text-transform: capitalize;
+}
+.category-chip:hover { background: var(--border); }
+.category-chip.selected {
+  background: rgba(102, 204, 255, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.modal-actions button {
+  background: var(--accent);
+  color: #04121d;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 80ms;
+}
+.modal-actions button:hover { opacity: 0.85; }
+.modal-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.import-progress {
+  margin-top: 16px;
+  text-align: center;
+}
+.progress-bar {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.3s;
+}
+.progress-text {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}

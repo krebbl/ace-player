@@ -76,3 +76,58 @@ async def search_live(query: str, force: bool = False) -> dict:
         await db.record_query_run(SOURCE, query, 0, error=str(e))
         summary[SOURCE] = f"error: {e}"
     return summary
+
+
+async def _query_upstream_for_category(client: httpx.AsyncClient, category: str) -> list[dict]:
+    r = await client.get(
+        SEARCH_URL,
+        params={"query": category},
+        headers=HEADERS,
+        timeout=TIMEOUT_S,
+        follow_redirects=True,
+    )
+    r.raise_for_status()
+    data = r.json()
+    rows: list[dict] = []
+    for item in data:
+        cid = (item.get("content_id") or "").lower()
+        if len(cid) != 40:
+            continue
+        name = item.get("name") or item.get("translated_name") or cid
+        rows.append({
+            "content_id": cid,
+            "name": name[:200].strip() or cid,
+            "category": category,
+            "source": SOURCE,
+        })
+    return rows
+
+
+async def import_category(category: str) -> int:
+    """Import all channels for a single category from upstream."""
+    try:
+        async with httpx.AsyncClient(http2=False) as client:
+            rows = await asyncio.wait_for(
+                _query_upstream_for_category(client, category), timeout=TIMEOUT_S * 3
+            )
+        n = await db.upsert_channels(rows)
+        log.info("imported %d channels for category %r", n, category)
+        return n
+    except asyncio.TimeoutError:
+        log.error("timeout importing category %r", category)
+        return 0
+    except Exception:
+        log.exception("failed to import category %r", category)
+        return 0
+
+
+async def import_categories(categories: list[str]) -> dict:
+    """Import channels for multiple categories sequentially."""
+    results = {}
+    total = 0
+    for cat in categories:
+        n = await import_category(cat)
+        results[cat] = n
+        total += n
+    await db.set_import_state(categories)
+    return {"total": total, "per_category": results}

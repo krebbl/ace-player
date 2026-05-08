@@ -12,6 +12,12 @@
     footerChannel: document.getElementById('footer-channel'),
     footerMeta: document.getElementById('footer-meta'),
     footerStatus: document.getElementById('footer-status'),
+    importModal: document.getElementById('import-modal'),
+    categoryGrid: document.getElementById('category-grid'),
+    importBtn: document.getElementById('import-btn'),
+    importProgress: document.getElementById('import-progress'),
+    progressFill: document.getElementById('progress-fill'),
+    progressText: document.getElementById('progress-text'),
   };
 
   let currentHls = null;
@@ -24,6 +30,7 @@
   let stallTimer = null;
   let reloadTimer = null;
   let bufferTimer = null;
+  let activeCategoryFilter = null;
   const RETRY_DELAYS_MS = [0, 2000, 5000, 10000, 20000, 30000, 45000, 60000];
   const MAX_RETRIES = RETRY_DELAYS_MS.length;
   const STALL_MS = 8000;
@@ -105,24 +112,24 @@
     const q = els.q.value.trim();
     updateResultsVisibility();
 
-    if (!q) {
+    if (!q && !activeCategoryFilter) {
       els.grid.innerHTML = '';
       setSearchStatus('');
       return;
     }
-    setSearchStatus('Searching upstream source…');
-    const params = new URLSearchParams({ q });
+    setSearchStatus('Searching…');
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (activeCategoryFilter) params.set('category', activeCategoryFilter);
     try {
       const r = await fetch('/api/streams?' + params);
       const data = await r.json();
       if (seq !== searchSeq) return;
       render(data.results || []);
-      const u = data.upstream;
-      const tail = u && u.cached ? ' (cached)' : '';
       setSearchStatus(
         data.results.length
-          ? `${data.results.length} channels${tail}`
-          : `No matches${tail}`,
+          ? `${data.results.length} channels`
+          : 'No matches',
       );
     } catch (e) {
       setSearchStatus('Search failed: ' + e.message, true);
@@ -347,7 +354,6 @@
 
   window.addEventListener('pagehide', stopCurrent);
 
-  // Auto-fullscreen on iOS landscape rotation
   const handleOrientation = () => {
     if (!currentId) return;
     const isLandscape = window.matchMedia('(orientation: landscape)').matches;
@@ -364,6 +370,88 @@
   window.addEventListener('orientationchange', handleOrientation);
   window.matchMedia('(orientation: landscape)').addEventListener('change', handleOrientation);
 
+  // --- Import flow ---
+
+  async function loadCategories() {
+    const r = await fetch('/api/categories/predefined');
+    const data = await r.json();
+    const selected = new Set();
+
+    els.categoryGrid.innerHTML = '';
+    for (const cat of data.categories) {
+      const chip = document.createElement('div');
+      chip.className = 'category-chip';
+      chip.textContent = cat.replace(/_/g, ' ');
+      chip.dataset.category = cat;
+      chip.addEventListener('click', () => {
+        if (selected.has(cat)) {
+          selected.delete(cat);
+          chip.classList.remove('selected');
+        } else {
+          selected.add(cat);
+          chip.classList.add('selected');
+        }
+        els.importBtn.disabled = selected.size === 0;
+      });
+      els.categoryGrid.appendChild(chip);
+    }
+
+    els.importBtn.addEventListener('click', async () => {
+      els.importBtn.disabled = true;
+      els.importProgress.hidden = false;
+      const cats = [...selected];
+      const total = cats.length;
+
+      const r = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories: cats }),
+      });
+      const result = await r.json();
+
+      for (let i = 0; i < total; i++) {
+        const pct = Math.round(((i + 1) / total) * 100);
+        els.progressFill.style.width = pct + '%';
+        const catName = cats[i].replace(/_/g, ' ');
+        const count = result.per_category[cats[i]] || 0;
+        els.progressText.textContent = `Imported ${catName}: ${count} channels (${i + 1}/${total})`;
+      }
+
+      els.progressText.textContent = `Done! ${result.total} channels imported.`;
+      setTimeout(() => {
+        els.importModal.hidden = true;
+        loadAllChannels();
+      }, 1500);
+    });
+  }
+
+  async function checkImportStatus() {
+    const r = await fetch('/api/import-status');
+    const data = await r.json();
+    if (!data.imported) {
+      els.importModal.hidden = false;
+      await loadCategories();
+    } else {
+      loadAllChannels();
+    }
+  }
+
+  async function loadAllChannels() {
+    setSearchStatus('Loading channels…');
+    try {
+      const r = await fetch('/api/streams');
+      const data = await r.json();
+      render(data.results || []);
+      setSearchStatus(
+        data.results.length
+          ? `${data.results.length} channels loaded`
+          : 'No channels found',
+      );
+    } catch (e) {
+      setSearchStatus('Failed to load: ' + e.message, true);
+    }
+  }
+
   updateResultsVisibility();
-  search();
+  checkImportStatus();
 })();

@@ -11,7 +11,14 @@ from fastapi.staticfiles import StaticFiles
 import acestream
 import db
 import hls
-from scraper import search_live
+from scraper import search_live, import_categories
+
+PREDEFINED_CATEGORIES = [
+    "informational", "entertaining", "educational", "movies",
+    "documentaries", "sport", "fashion", "music", "regional",
+    "ethnic", "religion", "teleshop", "erotic_18_plus",
+    "other_18_plus", "cyber_games", "amateur", "webcam",
+]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("main")
@@ -53,19 +60,36 @@ async def api_health():
 
 @app.get("/api/categories")
 async def api_categories():
-    return await db.categories()
+    return await db.imported_categories()
+
+
+@app.get("/api/categories/predefined")
+async def api_predefined_categories():
+    return {"categories": PREDEFINED_CATEGORIES}
+
+
+@app.get("/api/import-status")
+async def api_import_status():
+    return await db.get_import_state()
+
+
+@app.post("/api/import")
+async def api_import(body: dict):
+    categories = body.get("categories", [])
+    if not categories:
+        raise HTTPException(status_code=400, detail="at least one category is required")
+    invalid = [c for c in categories if c not in PREDEFINED_CATEGORIES]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"invalid categories: {invalid}")
+    return await import_categories(categories)
 
 
 @app.get("/api/streams")
 async def api_streams(q: str | None = None, category: str | None = None, page: int = 1):
-    """Search the catalog. If `q` is given, fan out to upstream sources first
-    (skipping any that have a fresh cache entry for this query)."""
+    """Search the local channel catalog. No upstream calls."""
     page = max(1, page)
-    upstream = None
-    if q and q.strip():
-        upstream = await search_live(q.strip())
     rows = await db.search(q=q, category=category, page=page)
-    return {"page": page, "results": rows, "upstream": upstream}
+    return {"page": page, "results": rows}
 
 
 @app.post("/api/refresh")

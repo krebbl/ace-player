@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS search_cache (
     PRIMARY KEY (source, query)
 );
 CREATE INDEX IF NOT EXISTS idx_search_cache_run ON search_cache(last_run);
+
+CREATE TABLE IF NOT EXISTS import_state (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
 """
 
 
@@ -139,3 +144,34 @@ async def channel_count():
     cur = await db.execute("SELECT COUNT(*) FROM channels")
     (n,) = await cur.fetchone()
     return n
+
+
+async def get_import_state():
+    db = await _conn()
+    cur = await db.execute("SELECT value FROM import_state WHERE key = 'imported'")
+    row = await cur.fetchone()
+    if row is None:
+        return {"imported": False, "categories": []}
+    import json
+    data = json.loads(row[0])
+    return {"imported": True, "categories": data.get("categories", [])}
+
+
+async def set_import_state(categories):
+    import json
+    db = await _conn()
+    await db.execute(
+        "INSERT OR REPLACE INTO import_state(key, value) VALUES (?, ?)",
+        ("imported", json.dumps({"categories": categories})),
+    )
+    await db.commit()
+
+
+async def imported_categories():
+    db = await _conn()
+    cur = await db.execute(
+        "SELECT category, COUNT(*) FROM channels WHERE category IS NOT NULL "
+        "GROUP BY category ORDER BY category"
+    )
+    rows = await cur.fetchall()
+    return [{"name": r[0], "count": r[1]} for r in rows]

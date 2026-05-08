@@ -8,6 +8,21 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<div id="import-modal" class="modal-overlay" hidden>
+  <div class="modal">
+    <h2>Select Channel Categories</h2>
+    <p class="modal-desc">Choose the categories of channels you want to import. This may take a moment.</p>
+    <div id="category-grid" class="category-grid"></div>
+    <div class="modal-actions">
+      <button id="import-btn" type="button" disabled>Import Selected</button>
+    </div>
+    <div id="import-progress" class="import-progress" hidden>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+      <p id="progress-text" class="progress-text"></p>
+    </div>
+  </div>
+</div>
+
 <header id="header">
   <div class="row">
     <input id="q" type="search" placeholder="Search channels…" autocomplete="off" inputmode="search">
