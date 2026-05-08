@@ -2,28 +2,58 @@
   const els = {
     q: document.getElementById('q'),
     closeOverlay: document.getElementById('close-overlay'),
-    status: document.getElementById('status'),
+    searchStatus: document.getElementById('search-status'),
     grid: document.getElementById('grid'),
     results: document.getElementById('results'),
     player: document.getElementById('player'),
     video: document.getElementById('video'),
-    playerStatus: document.getElementById('player-status'),
     playBtn: document.getElementById('play-btn'),
+    footerChannel: document.getElementById('footer-channel'),
+    footerMeta: document.getElementById('footer-meta'),
+    footerStatus: document.getElementById('footer-status'),
   };
 
   let currentHls = null;
   let currentId = null;
+  let currentName = null;
+  let currentCategory = null;
+  let currentSource = null;
   let searchSeq = 0;
   let retryCount = 0;
   let stallTimer = null;
   let reloadTimer = null;
-  // Backoff schedule (ms) applied before each reload attempt. The first
-  // attempt is instant; later attempts wait longer so a slow Ace stream
-  // warm-up (peer discovery, ffmpeg respawn) can complete without us
-  // hammering it. Total recovery window ~3 minutes.
+  let bufferTimer = null;
   const RETRY_DELAYS_MS = [0, 2000, 5000, 10000, 20000, 30000, 45000, 60000];
   const MAX_RETRIES = RETRY_DELAYS_MS.length;
   const STALL_MS = 8000;
+
+  const cleanName = (name) => (name || '').replace(/\s*search-ace\.stream\s*/gi, '').trim();
+
+  const updateBuffer = () => {
+    if (!currentId) return;
+    const v = els.video;
+    if (v.buffered.length === 0) return;
+    const pos = v.currentTime;
+    let end = 0;
+    for (let i = 0; i < v.buffered.length; i++) {
+      if (v.buffered.start(i) <= pos && v.buffered.end(i) > pos) {
+        end = v.buffered.end(i);
+        break;
+      }
+    }
+    const ahead = Math.max(0, end - pos);
+    els.footerStatus.textContent = `${ahead.toFixed(1)}s buffered`;
+    els.footerStatus.classList.remove('err');
+  };
+
+  const startBufferMonitor = () => {
+    stopBufferMonitor();
+    bufferTimer = setInterval(updateBuffer, 1000);
+  };
+
+  const stopBufferMonitor = () => {
+    if (bufferTimer) { clearInterval(bufferTimer); bufferTimer = null; }
+  };
 
   const debounce = (fn, ms) => {
     let t;
@@ -33,20 +63,29 @@
     };
   };
 
-  const setStatus = (msg, isErr = false) => {
-    els.status.textContent = msg || '';
-    els.status.classList.toggle('err', !!isErr);
+  const setSearchStatus = (msg, isErr = false) => {
+    els.searchStatus.textContent = msg || '';
+    els.searchStatus.classList.toggle('err', !!isErr);
   };
 
   const setPlayerStatus = (msg, isErr = false) => {
-    els.playerStatus.textContent = msg || '';
-    els.playerStatus.classList.toggle('err', !!isErr);
+    els.footerStatus.textContent = msg || '';
+    els.footerStatus.classList.toggle('err', !!isErr);
   };
 
-  // Results overlay is shown when the user is searching OR nothing is playing.
-  // Hidden only when a channel is playing AND the search box is empty. The
-  // close button is shown whenever the overlay is visible AND a channel is
-  // already playing (so closing it has somewhere to go).
+  const updateFooter = () => {
+    if (currentName) {
+      els.footerChannel.textContent = currentName;
+      const chips = [];
+      if (currentCategory) chips.push(currentCategory);
+      if (currentSource) chips.push(currentSource);
+      els.footerMeta.textContent = chips.join(' · ');
+    } else {
+      els.footerChannel.textContent = 'No channel selected';
+      els.footerMeta.textContent = '';
+    }
+  };
+
   function updateResultsVisibility() {
     const hasQuery = !!els.q.value.trim();
     const isPlaying = !!currentId;
@@ -62,10 +101,10 @@
 
     if (!q) {
       els.grid.innerHTML = '';
-      setStatus('Type a query (e.g. "sport", "bbc", "movie") to search search-ace.stream.');
+      setSearchStatus('');
       return;
     }
-    setStatus('Searching upstream source…');
+    setSearchStatus('Searching upstream source…');
     const params = new URLSearchParams({ q });
     try {
       const r = await fetch('/api/streams?' + params);
@@ -74,13 +113,13 @@
       render(data.results || []);
       const u = data.upstream;
       const tail = u && u.cached ? ' (cached)' : '';
-      setStatus(
+      setSearchStatus(
         data.results.length
           ? `${data.results.length} channels${tail}`
           : `No matches${tail}`,
       );
     } catch (e) {
-      setStatus('Search failed: ' + e.message, true);
+      setSearchStatus('Search failed: ' + e.message, true);
     }
   }
 
@@ -93,28 +132,8 @@
       card.tabIndex = 0;
       card.dataset.id = row.content_id;
       if (row.content_id === currentId) card.classList.add('playing');
-      card.innerHTML = `
-        <div class="name"></div>
-        <div class="meta"></div>
-      `;
-      card.querySelector('.name').textContent = row.name || row.content_id;
-      const meta = card.querySelector('.meta');
-      if (row.content_id === currentId) {
-        const c = document.createElement('span');
-        c.className = 'chip now';
-        c.textContent = 'Now playing';
-        meta.appendChild(c);
-      }
-      if (row.category) {
-        const c = document.createElement('span');
-        c.className = 'chip';
-        c.textContent = row.category;
-        meta.appendChild(c);
-      }
-      const s = document.createElement('span');
-      s.className = 'chip';
-      s.textContent = row.source;
-      meta.appendChild(s);
+      card.innerHTML = `<div class="name"></div>`;
+      card.querySelector('.name').textContent = cleanName(row.name) || row.content_id;
       const open = () => play(row);
       card.addEventListener('click', open);
       card.addEventListener('keydown', (e) => {
@@ -136,10 +155,10 @@
   function stopCurrent() {
     clearStallTimer();
     clearReloadTimer();
+    stopBufferMonitor();
+    els.footerStatus.textContent = '';
     if (currentHls) { try { currentHls.destroy(); } catch (e) {} currentHls = null; }
     els.video.pause();
-    els.video.removeAttribute('src');
-    els.video.load();
     if (currentId) {
       const id = currentId;
       navigator.sendBeacon
@@ -147,16 +166,17 @@
         : fetch('/api/stop/' + id, { method: 'POST', keepalive: true }).catch(() => {});
     }
     currentId = null;
+    currentName = null;
+    currentCategory = null;
+    currentSource = null;
+    updateFooter();
   }
 
-  // Reload the current stream without changing channel. Used when the video
-  // element errors, hits EOF on a live stream, or stalls for too long. Uses
-  // a backoff schedule so a slow Ace stream warm-up can finish before we
-  // give up. The backend's hls.ensure() respawns ffmpeg if its process died.
   function reloadStream(reason) {
     if (!currentId) return;
-    if (reloadTimer) return;        // a reload is already queued
+    if (reloadTimer) return;
     clearStallTimer();
+    stopBufferMonitor();
     if (retryCount >= MAX_RETRIES) {
       setPlayerStatus(`Stream keeps stopping (${reason}). Tap the channel again to retry.`, true);
       return;
@@ -177,7 +197,7 @@
     reloadTimer = setTimeout(() => {
       clearInterval(ticker);
       reloadTimer = null;
-      if (currentId !== startedFor) return;     // user switched channel mid-wait
+      if (currentId !== startedFor) return;
       setPlayerStatus(`Reconnecting (${reason}, attempt ${retryCount}/${MAX_RETRIES})…`);
       const url = `/hls/${startedFor}/index.m3u8?_=${Date.now()}`;
       if (currentHls) { try { currentHls.destroy(); } catch (e) {} currentHls = null; }
@@ -198,8 +218,6 @@
     }, delay);
   }
 
-  // Try to play; if the browser blocks autoplay, show a play button overlay
-  // so the user can tap to start (a tap counts as a user gesture).
   function tryPlay() {
     return els.video.play().catch(() => {
       els.playBtn.hidden = false;
@@ -217,12 +235,15 @@
     stopCurrent();
 
     currentId = row.content_id;
+    currentName = cleanName(row.name) || row.content_id;
+    currentCategory = row.category || null;
+    currentSource = cleanName(row.source) || null;
     hideOverlay();
+    updateFooter();
     retryCount = 0;
     setPlayerStatus('Resolving stream… (this can take 10–30 seconds)');
     els.playBtn.hidden = true;
 
-    // Mark the card as playing in-place.
     document.querySelectorAll('.card.playing').forEach((c) => c.classList.remove('playing'));
     const card = els.grid.querySelector(`.card[data-id="${row.content_id}"]`);
     if (card) card.classList.add('playing');
@@ -252,33 +273,30 @@
 
     const onPlaying = () => {
       setPlayerStatus('');
+      startBufferMonitor();
       els.video.removeEventListener('playing', onPlaying);
     };
     els.video.addEventListener('playing', onPlaying);
   }
 
-  // Recovery: register once on the video element. These fire for every stream.
   els.video.addEventListener('playing', () => {
     retryCount = 0;
     clearStallTimer();
     clearReloadTimer();
     els.playBtn.hidden = true;
+    startBufferMonitor();
   });
   els.video.addEventListener('error', () => reloadStream('error'));
-  // Live HLS shouldn't naturally end; if it does, the source bailed.
   els.video.addEventListener('ended', () => reloadStream('ended'));
-  // 'waiting' fires whenever the buffer underruns. Give iOS some grace, then
-  // reload if playback hasn't resumed.
   els.video.addEventListener('waiting', () => {
     clearStallTimer();
     stallTimer = setTimeout(() => {
-      if (els.video.paused) return;            // user paused intentionally
-      if (els.video.readyState >= 3) return;   // recovered on its own
+      if (els.video.paused) return;
+      if (els.video.readyState >= 3) return;
       reloadStream('stall');
     }, STALL_MS);
   });
   els.video.addEventListener('stalled', () => {
-    // Same handling as 'waiting' — the iOS event is sometimes 'stalled' instead.
     if (!stallTimer) {
       stallTimer = setTimeout(() => {
         if (!els.video.paused && els.video.readyState < 3) reloadStream('stalled');
@@ -291,15 +309,12 @@
     tryPlay();
   });
 
-  // Tapping anywhere on the overlay outside a card closes it.
   els.results.addEventListener('click', (e) => {
     if (e.target.closest('.card')) return;
     hideOverlay();
   });
 
   els.q.addEventListener('input', debounce(search, 250));
-  // Tapping the search input always reveals the overlay, so the user can
-  // pick a different channel mid-playback even with no query typed.
   els.q.addEventListener('focus', () => {
     els.results.hidden = false;
     if (currentId) els.closeOverlay.hidden = false;

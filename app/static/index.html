@@ -13,20 +13,25 @@
     <input id="q" type="search" placeholder="Search channels…" autocomplete="off" inputmode="search">
     <button id="close-overlay" type="button" aria-label="Close search" hidden>✕</button>
   </div>
-  <div id="status" class="status"></div>
 </header>
 
-<main id="stage">
-  <section id="player">
-    <video id="video" controls autoplay playsinline></video>
-    <div id="player-status" class="status"></div>
-    <button id="play-btn" aria-label="Play" hidden>▶</button>
-  </section>
+<main id="player">
+  <video id="video" autoplay playsinline></video>
+  <button id="play-btn" aria-label="Play" hidden>▶</button>
 
   <section id="results" aria-label="Channels">
+    <div id="search-status" class="search-status"></div>
     <div id="grid"></div>
   </section>
 </main>
+
+<footer id="footer">
+  <div class="footer-left">
+    <div id="footer-channel" class="footer-channel">No channel selected</div>
+    <div id="footer-meta" class="footer-meta"></div>
+  </div>
+  <div id="footer-status" class="footer-right"></div>
+</footer>
 
 <script src="/vendor/hls.min.js"></script>
 <script src="/app.js" defer></script>
