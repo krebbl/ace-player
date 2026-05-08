@@ -295,6 +295,9 @@
   els.video.addEventListener('pause', () => {
     if (currentId) els.playBtn.hidden = false;
   });
+  els.video.addEventListener('webkitendfullscreen', () => {
+    if (currentId) els.video.play().catch(() => {});
+  });
   els.video.addEventListener('error', () => reloadStream('error'));
   els.video.addEventListener('ended', () => reloadStream('ended'));
   els.video.addEventListener('waiting', () => {
