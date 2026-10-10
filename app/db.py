@@ -1,10 +1,29 @@
+import logging
 import os
+import re
 import time
 import aiosqlite
+
+log = logging.getLogger("db")
 
 DB_PATH = os.environ.get("DB_PATH", "/data/catalog.db")
 
 _db: aiosqlite.Connection | None = None
+
+# Adult-content filter. Applied at insert time (upsert_channels) and as a
+# startup cleanup so nothing adult is ever served by any endpoint.
+ADULT_CATEGORIES = {"erotic_18_plus", "other_18_plus", "webcam"}
+ADULT_NAME_RE = re.compile(
+    r"adult|porn\w*|xxx|erotic|\b18\+|nudes?|sexy|sexual|striptease|webcam"
+    r"|onlyfans|playboy|hustler|penthouse|brazzers|milf|hardcore|blowjob|bdsm",
+    re.IGNORECASE,
+)
+
+
+def is_adult(name: str | None, category: str | None = None) -> bool:
+    if (category or "").lower() in ADULT_CATEGORIES:
+        return True
+    return bool(name and ADULT_NAME_RE.search(name))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS channels (
@@ -39,6 +58,12 @@ async def init():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     _db = await aiosqlite.connect(DB_PATH)
     await _db.executescript(SCHEMA)
+    # Purge anything adult already in the catalog (idempotent, cheap).
+    cur = await _db.execute("SELECT content_id, name, category FROM channels")
+    doomed = [(r[0],) for r in await cur.fetchall() if is_adult(r[1], r[2])]
+    if doomed:
+        await _db.executemany("DELETE FROM channels WHERE content_id = ?", doomed)
+        log.info("purged %d adult channels", len(doomed))
     await _db.commit()
 
 
@@ -49,6 +74,7 @@ async def _conn() -> aiosqlite.Connection:
 
 
 async def upsert_channels(rows):
+    rows = [r for r in rows if not is_adult(r.get("name"), r.get("category"))]
     if not rows:
         return 0
     now = int(time.time())

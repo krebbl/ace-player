@@ -16,8 +16,7 @@ from scraper import search_live, import_categories
 PREDEFINED_CATEGORIES = [
     "informational", "entertaining", "educational", "movies",
     "documentaries", "sport", "fashion", "music", "regional",
-    "ethnic", "religion", "teleshop", "erotic_18_plus",
-    "other_18_plus", "cyber_games", "amateur", "webcam",
+    "ethnic", "religion", "teleshop", "cyber_games", "amateur",
 ]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
