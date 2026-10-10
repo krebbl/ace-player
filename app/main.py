@@ -2,18 +2,16 @@ import asyncio
 import logging
 import os
 import re
-import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import acestream
 import db
 import hls
 from scraper import search_live, import_categories
-from epg import fetch_and_store
 
 PREDEFINED_CATEGORIES = [
     "informational", "entertaining", "educational", "movies",
@@ -38,23 +36,12 @@ def _check_id(content_id: str):
 async def lifespan(app: FastAPI):
     await db.init()
     await hls.manager.start()
-    last_fetch = await db.epg_get_last_fetch()
-    if time.time() - last_fetch > 6 * 3600:
-        asyncio.create_task(_background_epg_fetch())
     log.info("startup complete")
     yield
     log.info("shutting down")
     await hls.manager.shutdown()
     if db._db:
         await db._db.close()
-
-
-async def _background_epg_fetch():
-    try:
-        result = await fetch_and_store()
-        log.info("EPG fetch complete: %s", result)
-    except Exception:
-        log.exception("EPG fetch failed")
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -68,7 +55,6 @@ async def api_health():
         "channels": await db.channel_count(),
         "recent_searches": await db.recent_searches(),
         "active_streams": hls.manager.active(),
-        "epg_last_fetch": await db.epg_get_last_fetch(),
     }
 
 
@@ -98,25 +84,6 @@ async def api_import(body: dict):
     return await import_categories(categories)
 
 
-@app.get("/api/epg/now")
-async def api_epg_now():
-    return await db.epg_now_for_all()
-
-
-@app.get("/api/epg/channel/{content_id}")
-async def api_epg_channel(content_id: str, hours: int = 24):
-    _check_id(content_id)
-    data = await db.epg_for_channel(content_id, hours=hours)
-    if data is None:
-        raise HTTPException(status_code=404, detail="no EPG data for this channel")
-    return data
-
-
-@app.post("/api/epg/refresh")
-async def api_epg_refresh():
-    return await fetch_and_store()
-
-
 @app.get("/api/streams")
 async def api_streams(q: str | None = None, category: str | None = None, page: int = 1):
     """Search the local channel catalog. No upstream calls."""
@@ -139,6 +106,40 @@ async def api_stop(content_id: str):
     _check_id(content_id)
     await hls.manager.stop(content_id)
     return {"ok": True}
+
+
+@app.post("/api/channels")
+async def api_add_channel(body: dict):
+    name = body.get("name", "").strip()
+    content_id = body.get("content_id", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not ID_RE.match(content_id):
+        raise HTTPException(status_code=400, detail="invalid content_id (must be 40 hex characters)")
+    await db.add_channel(content_id, name)
+    return {"ok": True, "content_id": content_id}
+
+
+@app.get("/playlist.m3u8")
+async def playlist(request: Request, category: str | None = None):
+    """M3U channel list for IPTV players (TiviMate, VLC, ...)."""
+    base = str(request.base_url).rstrip("/")
+    channels = await db.all_channels(category)
+    lines = ["#EXTM3U"]
+    for ch in channels:
+        attrs = f'tvg-name="{ch["name"]}"'
+        if ch["category"]:
+            attrs += f' group-title="{ch["category"]}"'
+        lines.append(
+            f'#EXTINF:-1 {attrs},{ch["name"]}\n'
+            f'{base}/hls/{ch["content_id"]}/index.m3u8'
+        )
+    body = "\n".join(lines) + "\n"
+    return Response(
+        content=body,
+        media_type="audio/x-mpegurl",
+        headers=_cors({"Cache-Control": "no-store"}),
+    )
 
 
 def _cors(headers: dict | None = None) -> dict:

@@ -31,30 +31,6 @@ CREATE TABLE IF NOT EXISTS import_state (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS epg_channels (
-    id                   INTEGER PRIMARY KEY,
-    xmltv_id             TEXT UNIQUE NOT NULL,
-    display_name         TEXT,
-    matched_channel_name TEXT,
-    ace_content_id       TEXT REFERENCES channels(content_id)
-);
-
-CREATE TABLE IF NOT EXISTS epg_programs (
-    id          INTEGER PRIMARY KEY,
-    channel_id  INTEGER NOT NULL REFERENCES epg_channels(id),
-    start       INTEGER NOT NULL,
-    stop        INTEGER NOT NULL,
-    title       TEXT NOT NULL,
-    description TEXT,
-    category    TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_epg_programs_ch_time ON epg_programs(channel_id, start, stop);
-
-CREATE TABLE IF NOT EXISTS epg_config (
-    key    TEXT PRIMARY KEY,
-    value  TEXT NOT NULL
-);
 """
 
 
@@ -138,6 +114,19 @@ async def search(q=None, category=None, page=1, page_size=50):
     ]
 
 
+async def all_channels(category: str | None = None):
+    db = await _conn()
+    sql = "SELECT content_id, name, category FROM channels"
+    params: list = []
+    if category:
+        sql += " WHERE category = ? COLLATE NOCASE"
+        params.append(category)
+    sql += " ORDER BY name COLLATE NOCASE"
+    cur = await db.execute(sql, params)
+    rows = await cur.fetchall()
+    return [{"content_id": r[0], "name": r[1], "category": r[2]} for r in rows]
+
+
 async def categories():
     db = await _conn()
     cur = await db.execute(
@@ -191,6 +180,20 @@ async def set_import_state(categories):
     await db.commit()
 
 
+async def add_channel(content_id: str, name: str):
+    now = int(time.time())
+    db = await _conn()
+    await db.execute(
+        """INSERT INTO channels(content_id, name, category, source, last_seen)
+           VALUES (?, ?, 'Custom', 'Manual', ?)
+           ON CONFLICT(content_id) DO UPDATE SET
+               name=excluded.name,
+               last_seen=excluded.last_seen""",
+        (content_id, name, now),
+    )
+    await db.commit()
+
+
 async def imported_categories():
     db = await _conn()
     cur = await db.execute(
@@ -199,129 +202,3 @@ async def imported_categories():
     )
     rows = await cur.fetchall()
     return [{"name": r[0], "count": r[1]} for r in rows]
-
-
-async def epg_clear():
-    db = await _conn()
-    await db.execute("DELETE FROM epg_programs")
-    await db.execute("DELETE FROM epg_channels")
-    await db.commit()
-
-
-async def epg_store_channels(channels):
-    if not channels:
-        return []
-    db = await _conn()
-    ids = []
-    for ch in channels:
-        cur = await db.execute(
-            "INSERT OR IGNORE INTO epg_channels(xmltv_id, display_name, matched_channel_name, ace_content_id) VALUES (?, ?, ?, ?)",
-            (ch["xmltv_id"], ch.get("display_name"), ch.get("matched_channel_name"), ch.get("ace_content_id")),
-        )
-        if cur.lastrowid:
-            ids.append(cur.lastrowid)
-    await db.commit()
-    cur = await db.execute(
-        "SELECT id, xmltv_id FROM epg_channels WHERE xmltv_id IN ({})".format(",".join("?" for _ in channels)),
-        [ch["xmltv_id"] for ch in channels],
-    )
-    rows = await cur.fetchall()
-    return [{"id": r[0], "xmltv_id": r[1]} for r in rows]
-
-
-async def epg_store_programs(programs):
-    if not programs:
-        return 0
-    db = await _conn()
-    await db.executemany(
-        "INSERT OR REPLACE INTO epg_programs(channel_id, start, stop, title, description, category) VALUES (?, ?, ?, ?, ?, ?)",
-        [(p["channel_id"], p["start"], p["stop"], p["title"], p.get("description"), p.get("category")) for p in programs],
-    )
-    await db.commit()
-    return len(programs)
-
-
-async def epg_cleanup_old():
-    cutoff = int(time.time()) - 3600
-    db = await _conn()
-    await db.execute("DELETE FROM epg_programs WHERE stop < ?", (cutoff,))
-    await db.commit()
-
-
-async def epg_set_last_fetch(ts):
-    db = await _conn()
-    await db.execute("INSERT OR REPLACE INTO epg_config(key, value) VALUES (?, ?)", ("last_fetch", str(ts)))
-    await db.commit()
-
-
-async def epg_get_last_fetch():
-    db = await _conn()
-    cur = await db.execute("SELECT value FROM epg_config WHERE key = 'last_fetch'")
-    row = await cur.fetchone()
-    return int(row[0]) if row else 0
-
-
-async def epg_now_for_all():
-    now = int(time.time())
-    db = await _conn()
-    cur = await db.execute(
-        """SELECT DISTINCT c.ace_content_id, ch.name,
-                  p.title, p.start, p.stop, p.description, p.category,
-                  np.title as next_title, np.start as next_start, np.stop as next_stop
-           FROM epg_channels c
-           JOIN channels ch ON ch.content_id = c.ace_content_id
-           LEFT JOIN epg_programs p ON p.channel_id = c.id AND p.start <= ? AND p.stop > ?
-           LEFT JOIN epg_programs np ON np.channel_id = c.id AND np.start = (
-               SELECT MIN(np2.start) FROM epg_programs np2 WHERE np2.channel_id = c.id AND np2.start > ?
-           )
-           ORDER BY ch.name COLLATE NOCASE""",
-        (now, now, now),
-    )
-    rows = await cur.fetchall()
-    return [
-        {
-            "content_id": r[0],
-            "channel_name": r[1],
-            "title": r[2],
-            "start": r[3],
-            "stop": r[4],
-            "description": r[5],
-            "category": r[6],
-            "next_title": r[7],
-            "next_start": r[8],
-            "next_stop": r[9],
-        }
-        for r in rows
-    ]
-
-
-async def epg_for_channel(ace_content_id, hours=24):
-    now = int(time.time())
-    cutoff = now + hours * 3600
-    db = await _conn()
-    cur = await db.execute(
-        """SELECT c.xmltv_id, c.display_name,
-                  p.title, p.start, p.stop, p.description, p.category
-           FROM epg_channels c
-           LEFT JOIN epg_programs p ON p.channel_id = c.id AND p.start >= ? AND p.stop <= ?
-           WHERE c.ace_content_id = ?
-           ORDER BY p.start""",
-        (now, cutoff, ace_content_id),
-    )
-    rows = await cur.fetchall()
-    if not rows:
-        return None
-    return {
-        "xmltv_id": rows[0][0],
-        "display_name": rows[0][1],
-        "programs": [
-            {
-                "title": r[2],
-                "start": r[3],
-                "stop": r[4],
-                "description": r[5],
-                "category": r[6],
-            }
-            for r in rows if r[2] is not None
-        ],
-    }

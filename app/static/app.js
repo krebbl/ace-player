@@ -18,6 +18,13 @@
     importProgress: document.getElementById('import-progress'),
     progressFill: document.getElementById('progress-fill'),
     progressText: document.getElementById('progress-text'),
+    addChannelBtn: document.getElementById('add-channel-btn'),
+    addChannelModal: document.getElementById('add-channel-modal'),
+    addChannelForm: document.getElementById('add-channel-form'),
+    channelName: document.getElementById('channel-name'),
+    channelId: document.getElementById('channel-id'),
+    addChannelError: document.getElementById('add-channel-error'),
+    cancelAddBtn: document.getElementById('cancel-add-btn'),
   };
 
   let currentHls = null;
@@ -31,56 +38,11 @@
   let reloadTimer = null;
   let bufferTimer = null;
   let activeCategoryFilter = null;
-  let epgCache = null;
-  let epgFetchTimer = null;
   const RETRY_DELAYS_MS = [0, 2000, 5000, 10000, 20000, 30000, 45000, 60000];
   const MAX_RETRIES = RETRY_DELAYS_MS.length;
   const STALL_MS = 8000;
 
   const cleanName = (name) => (name || '').replace(/\s*search-ace\.stream\s*/gi, '').trim();
-
-  const fmtTime = (ts) => {
-    if (!ts) return '';
-    const d = new Date(ts * 1000);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  async function fetchEpg() {
-    if (epgFetchTimer) clearTimeout(epgFetchTimer);
-    try {
-      const r = await fetch('/api/epg/now');
-      if (r.ok) {
-        const data = await r.json();
-        epgCache = {};
-        for (const item of data) {
-          epgCache[item.content_id] = item;
-        }
-        applyEpgToCards();
-      }
-    } catch (e) {}
-    epgFetchTimer = setTimeout(fetchEpg, 5 * 60 * 1000);
-  }
-
-  function applyEpgToCards() {
-    if (!epgCache) return;
-    document.querySelectorAll('.card').forEach((card) => {
-      const id = card.dataset.id;
-      const epg = epgCache[id];
-      let el = card.querySelector('.epg-info');
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'epg-info';
-        card.appendChild(el);
-      }
-      if (epg && epg.title) {
-        const next = epg.next_title ? ` · Next: ${epg.next_title}` : '';
-        el.textContent = `${epg.title} (${fmtTime(epg.start)}–${fmtTime(epg.stop)})${next}`;
-        el.hidden = false;
-      } else {
-        el.hidden = true;
-      }
-    });
-  }
 
   const updateBuffer = () => {
     if (!currentId) return;
@@ -487,7 +449,6 @@
       const r = await fetch('/api/streams');
       const data = await r.json();
       render(data.results || []);
-      fetchEpg();
       setSearchStatus(
         data.results.length
           ? `${data.results.length} channels loaded`
@@ -497,6 +458,58 @@
       setSearchStatus('Failed to load: ' + e.message, true);
     }
   }
+
+  const openAddChannelModal = () => {
+    els.addChannelModal.hidden = false;
+    els.channelName.value = '';
+    els.channelId.value = '';
+    els.addChannelError.hidden = true;
+    els.channelName.focus();
+  };
+
+  const closeAddChannelModal = () => {
+    els.addChannelModal.hidden = true;
+  };
+
+  els.addChannelBtn.addEventListener('click', openAddChannelModal);
+  els.cancelAddBtn.addEventListener('click', closeAddChannelModal);
+
+  els.addChannelForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    els.addChannelError.hidden = true;
+    const name = els.channelName.value.trim();
+    const contentId = els.channelId.value.trim();
+
+    if (!name) {
+      els.addChannelError.textContent = 'Name is required.';
+      els.addChannelError.hidden = false;
+      return;
+    }
+    if (!/^[a-fA-F0-9]{40}$/.test(contentId)) {
+      els.addChannelError.textContent = 'ID must be exactly 40 hex characters.';
+      els.addChannelError.hidden = false;
+      return;
+    }
+
+    try {
+      const r = await fetch('/api/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, content_id: contentId }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        els.addChannelError.textContent = data.detail || 'Failed to add channel.';
+        els.addChannelError.hidden = false;
+        return;
+      }
+      closeAddChannelModal();
+      loadAllChannels();
+    } catch (e) {
+      els.addChannelError.textContent = 'Network error: ' + e.message;
+      els.addChannelError.hidden = false;
+    }
+  });
 
   updateResultsVisibility();
   checkImportStatus();

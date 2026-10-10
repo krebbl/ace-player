@@ -23,9 +23,32 @@
   </div>
 </div>
 
+<div id="add-channel-modal" class="modal-overlay" hidden>
+  <div class="modal">
+    <h2>Add Channel</h2>
+    <p class="modal-desc">Enter a channel name and its Ace Stream content ID.</p>
+    <form id="add-channel-form" class="form-stack">
+      <label class="form-label">
+        <span>Channel name</span>
+        <input id="channel-name" type="text" placeholder="e.g. ESPN" required autocomplete="off">
+      </label>
+      <label class="form-label">
+        <span>Ace Stream ID</span>
+        <input id="channel-id" type="text" placeholder="40-character hex ID" required autocomplete="off" pattern="[a-fA-F0-9]{40}" maxlength="40">
+      </label>
+      <div id="add-channel-error" class="form-error" hidden></div>
+      <div class="modal-actions">
+        <button type="button" id="cancel-add-btn" class="btn-secondary">Cancel</button>
+        <button type="submit" id="submit-channel-btn">Add Channel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <header id="header">
   <div class="row">
     <input id="q" type="search" placeholder="Search channels…" autocomplete="off" inputmode="search">
+    <button id="add-channel-btn" type="button" aria-label="Add channel">+</button>
     <button id="close-overlay" type="button" aria-label="Close search" hidden>✕</button>
   </div>
 </header>
