@@ -76,7 +76,7 @@ repo's compose file — add it locally.
 | `GET /api/health`                        | Engine + recent searches + active streams |
 | `GET /api/categories`                    | Distinct categories            |
 | `GET /api/streams?q=&category=&page=`    | Search the catalog (triggers a fan-out if `q` isn't fresh in cache) |
-| `GET /playlist.m3u8?category=`           | M3U channel list for IPTV players (`group-title` = category) |
+| `GET /playlist?category=`                | M3U channel list for IPTV players (`group-title` = category) |
 | `POST /api/refresh?q=<keyword>`          | Force a fresh upstream fan-out for `q`     |
 | `POST /api/stop/<content_id>`            | Tear down a running ffmpeg     |
 | `GET /hls/<content_id>/index.m3u8`       | HLS playlist (lazy-starts ffmpeg) |

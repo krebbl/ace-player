@@ -120,7 +120,7 @@ async def api_add_channel(body: dict):
     return {"ok": True, "content_id": content_id}
 
 
-@app.get("/playlist.m3u8")
+@app.get("/playlist")
 async def playlist(request: Request, category: str | None = None):
     """M3U channel list for IPTV players (TiviMate, VLC, ...)."""
     base = str(request.base_url).rstrip("/")
