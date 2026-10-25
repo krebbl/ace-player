@@ -78,10 +78,12 @@ async def search_live(query: str, force: bool = False) -> dict:
     return summary
 
 
-async def _query_upstream_for_category(client: httpx.AsyncClient, category: str) -> list[dict]:
+async def _query_upstream_for_category(
+    client: httpx.AsyncClient, category: str, term: str
+) -> list[dict]:
     r = await client.get(
         SEARCH_URL,
-        params={"query": category},
+        params={"query": term},
         headers=HEADERS,
         timeout=TIMEOUT_S,
         follow_redirects=True,
@@ -103,15 +105,29 @@ async def _query_upstream_for_category(client: httpx.AsyncClient, category: str)
     return rows
 
 
-async def import_category(category: str) -> int:
-    """Import all channels for a single category from upstream."""
+async def import_category(category: str, terms: list[str] | None = None) -> int:
+    """Import all channels for a single category from upstream.
+
+    `terms` are the search terms for this category (defaults to the category
+    name itself). Results are merged and deduped by content_id; the first
+    occurrence wins, so earlier terms keep their channel names.
+    """
+    terms = terms or [category]
     try:
+        rows: list[dict] = []
+        seen: set[str] = set()
         async with httpx.AsyncClient(http2=False) as client:
-            rows = await asyncio.wait_for(
-                _query_upstream_for_category(client, category), timeout=TIMEOUT_S * 3
-            )
+            for term in terms:
+                fetched = await asyncio.wait_for(
+                    _query_upstream_for_category(client, category, term),
+                    timeout=TIMEOUT_S * 3,
+                )
+                for row in fetched:
+                    if row["content_id"] not in seen:
+                        seen.add(row["content_id"])
+                        rows.append(row)
         n = await db.upsert_channels(rows)
-        log.info("imported %d channels for category %r", n, category)
+        log.info("imported %d channels for category %r (terms: %r)", n, category, terms)
         return n
     except asyncio.TimeoutError:
         log.error("timeout importing category %r", category)
@@ -121,12 +137,13 @@ async def import_category(category: str) -> int:
         return 0
 
 
-async def import_categories(categories: list[str]) -> dict:
+async def import_categories(categories: list[str], term_map: dict[str, list[str]] | None = None) -> dict:
     """Import channels for multiple categories sequentially."""
+    term_map = term_map or {}
     results = {}
     total = 0
     for cat in categories:
-        n = await import_category(cat)
+        n = await import_category(cat, term_map.get(cat))
         results[cat] = n
         total += n
     await db.set_import_state(categories)

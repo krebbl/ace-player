@@ -13,11 +13,26 @@ import db
 import hls
 from scraper import search_live, import_categories
 
-PREDEFINED_CATEGORIES = [
-    "informational", "entertaining", "educational", "movies",
-    "documentaries", "sport", "fashion", "music", "regional",
-    "ethnic", "religion", "teleshop", "cyber_games", "amateur",
-]
+# Category -> upstream search terms. Each term is queried on import; results
+# are merged per category. Extra (brand/event) terms first so stable channel
+# names win over generic ones when the same content_id appears in several
+# term results (first occurrence wins in scraper.import_category).
+PREDEFINED_CATEGORIES = {
+    "informational": ["informational"],
+    "entertaining": ["entertaining"],
+    "educational": ["educational"],
+    "movies": ["movies"],
+    "documentaries": ["documentaries"],
+    "sport": ["DAZN", "SKY sport", "bundesliga", "sport"],
+    "fashion": ["fashion"],
+    "music": ["music"],
+    "regional": ["regional"],
+    "ethnic": ["ethnic"],
+    "religion": ["religion"],
+    "teleshop": ["teleshop"],
+    "cyber_games": ["cyber_games"],
+    "amateur": ["amateur"],
+}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("main")
@@ -64,7 +79,7 @@ async def api_categories():
 
 @app.get("/api/categories/predefined")
 async def api_predefined_categories():
-    return {"categories": PREDEFINED_CATEGORIES}
+    return {"categories": list(PREDEFINED_CATEGORIES)}
 
 
 @app.get("/api/import-status")
@@ -80,7 +95,7 @@ async def api_import(body: dict):
     invalid = [c for c in categories if c not in PREDEFINED_CATEGORIES]
     if invalid:
         raise HTTPException(status_code=400, detail=f"invalid categories: {invalid}")
-    return await import_categories(categories)
+    return await import_categories(categories, PREDEFINED_CATEGORIES)
 
 
 @app.get("/api/streams")
