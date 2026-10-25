@@ -83,6 +83,20 @@ body {
 }
 #add-channel-btn:hover { background: var(--surface-2); }
 
+#import-channels-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+#import-channels-btn:hover { background: var(--surface-2); }
+
 #player {
   flex: 1;
   position: relative;

@@ -19,6 +19,7 @@
     progressFill: document.getElementById('progress-fill'),
     progressText: document.getElementById('progress-text'),
     addChannelBtn: document.getElementById('add-channel-btn'),
+    importChannelsBtn: document.getElementById('import-channels-btn'),
     addChannelModal: document.getElementById('add-channel-modal'),
     addChannelForm: document.getElementById('add-channel-form'),
     channelName: document.getElementById('channel-name'),
@@ -379,10 +380,21 @@
 
   // --- Import flow ---
 
+  let selectedCategories = new Set();
+
+  async function openImportModal() {
+    els.importModal.hidden = false;
+    els.importProgress.hidden = true;
+    els.progressFill.style.width = '0%';
+    els.progressText.textContent = '';
+    els.importBtn.disabled = true;
+    selectedCategories.clear();
+    await loadCategories();
+  }
+
   async function loadCategories() {
     const r = await fetch('/api/categories/predefined');
     const data = await r.json();
-    const selected = new Set();
 
     els.categoryGrid.innerHTML = '';
     for (const cat of data.categories) {
@@ -391,53 +403,54 @@
       chip.textContent = cat.replace(/_/g, ' ');
       chip.dataset.category = cat;
       chip.addEventListener('click', () => {
-        if (selected.has(cat)) {
-          selected.delete(cat);
+        if (selectedCategories.has(cat)) {
+          selectedCategories.delete(cat);
           chip.classList.remove('selected');
         } else {
-          selected.add(cat);
+          selectedCategories.add(cat);
           chip.classList.add('selected');
         }
-        els.importBtn.disabled = selected.size === 0;
+        els.importBtn.disabled = selectedCategories.size === 0;
       });
       els.categoryGrid.appendChild(chip);
     }
-
-    els.importBtn.addEventListener('click', async () => {
-      els.importBtn.disabled = true;
-      els.importProgress.hidden = false;
-      const cats = [...selected];
-      const total = cats.length;
-
-      const r = await fetch('/api/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categories: cats }),
-      });
-      const result = await r.json();
-
-      for (let i = 0; i < total; i++) {
-        const pct = Math.round(((i + 1) / total) * 100);
-        els.progressFill.style.width = pct + '%';
-        const catName = cats[i].replace(/_/g, ' ');
-        const count = result.per_category[cats[i]] || 0;
-        els.progressText.textContent = `Imported ${catName}: ${count} channels (${i + 1}/${total})`;
-      }
-
-      els.progressText.textContent = `Done! ${result.total} channels imported.`;
-      setTimeout(() => {
-        els.importModal.hidden = true;
-        loadAllChannels();
-      }, 1500);
-    });
   }
+
+  els.importBtn.addEventListener('click', async () => {
+    els.importBtn.disabled = true;
+    els.importProgress.hidden = false;
+    const cats = [...selectedCategories];
+    const total = cats.length;
+
+    const r = await fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: cats }),
+    });
+    const result = await r.json();
+
+    for (let i = 0; i < total; i++) {
+      const pct = Math.round(((i + 1) / total) * 100);
+      els.progressFill.style.width = pct + '%';
+      const catName = cats[i].replace(/_/g, ' ');
+      const count = result.per_category[cats[i]] || 0;
+      els.progressText.textContent = `Imported ${catName}: ${count} channels (${i + 1}/${total})`;
+    }
+
+    els.progressText.textContent = `Done! ${result.total} channels imported.`;
+    setTimeout(() => {
+      els.importModal.hidden = true;
+      loadAllChannels();
+    }, 1500);
+  });
+
+  els.importChannelsBtn.addEventListener('click', openImportModal);
 
   async function checkImportStatus() {
     const r = await fetch('/api/import-status');
     const data = await r.json();
     if (!data.imported) {
-      els.importModal.hidden = false;
-      await loadCategories();
+      await openImportModal();
     } else {
       loadAllChannels();
     }
